@@ -1,9 +1,43 @@
-from fastapi import APIRouter, Path, HTTPException
+import json
+import os, requests
+
+from fastapi import APIRouter, Path, HTTPException, File, UploadFile
+
 from ..services.s3 import s3_service, DocumentType
 
-router = APIRouter(prefix="/documents", tags=["documents"])
+documents_router = APIRouter(prefix="/documents", tags=["documents"])
 
-@router.post("/generate-upload-url/{user_id}/{case_id}/{document_type}")
+@documents_router.post("/submit")
+async def submit_document(
+    claim_number_str: str,
+    name: str,
+    member_id: str,
+    group_id: str,
+    details: str,
+    bill: UploadFile = File(..., description="The file to upload"),
+    explanation_of_benefits: UploadFile = File(..., description="The file to upload"),
+    policy: UploadFile = File(..., description="The file to upload"),
+):
+    uploaded_file_ids = {
+        name: json.loads(requests.post(
+            "https://api.openai.com/v1/files",
+            headers={
+                "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
+            },
+            data={
+                "purpose": "user_data",
+            },
+            files={
+                "file": f.file,
+            },
+        ).content)["id"]
+        for name, f in (("bill", bill),
+                        ("explanation_of_benefits", explanation_of_benefits),
+                        ("policy", policy))
+    }
+    print("DONE")
+
+@documents_router.post("/generate-upload-url/{user_id}/{case_id}/{document_type}")
 async def generate_upload_url(
     user_id: str = Path(..., description="User ID"),
     case_id: str = Path(..., description="Case ID"),
@@ -22,7 +56,7 @@ async def generate_upload_url(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/{user_id}/{case_id}/{document_type}/{filename}")
+@documents_router.get("/{user_id}/{case_id}/{document_type}/{filename}")
 async def get_document_url(
     user_id: str = Path(..., description="User ID"),
     case_id: str = Path(..., description="Case ID"),
